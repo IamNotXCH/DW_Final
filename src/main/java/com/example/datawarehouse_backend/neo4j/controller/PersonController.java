@@ -100,14 +100,15 @@ public class PersonController {
     }
 
     @GetMapping(path = "/actor-collaboration", produces = "application/json")
-    public HashMap<String, Object> getActorCollaboration(@RequestParam String actorName) {
+    public HashMap<String, Object> getActorCollaboration() {
         HashMap<String, Object> response = new HashMap<>();
         try (Session session = driver.session()) {
             // Cypher 查询：查找常合作的演员组合，并按合作次数排序
             String query = "MATCH (a1:Actor)<-[:HAS_ACTOR]-(m:Movie)-[:HAS_ACTOR]->(a2:Actor) " +
                     "WHERE a1 <> a2 " +
                     "RETURN a1.Name AS Actor1, a2.Name AS Actor2, COUNT(m) AS MovieCount " +
-                    "ORDER BY MovieCount DESC";
+                    "ORDER BY MovieCount DESC " +
+                    "LIMIT 100";
 
             // 记录开始时间
             long startTime = System.currentTimeMillis();
@@ -179,4 +180,102 @@ public class PersonController {
             return response;
         }
     }
+
+    /**
+     * 获取最受关注的演员组合（评论最多）的列表
+     * @param type 电影类型（如 "Action"）
+     * @return 最受关注的演员组合及评论总数
+     */
+    @GetMapping(path = "/most-attended-actor-pair", produces = "application/json")
+    public HashMap<String, Object> getMostAttendedActorPair(@RequestParam String type) {
+        try (Session session = driver.session()) {
+            // Cypher 查询：获取最受关注的演员组合及评论总数
+            String query = "MATCH (t:Type {Name: $type})<-[:BELONGS_TO_TYPE]-(m:Movie)-[:HAS_VERSION]->(v:Version), " +
+                    "(m)-[:HAS_ACTOR]->(a1:Actor), " +
+                    "(m)-[:HAS_ACTOR]->(a2:Actor) " +
+                    "WHERE id(a1) < id(a2) " + // 确保每对组合唯一
+                    "RETURN " +
+                    "[a1.Name, a2.Name] AS ActorPair, " +
+                    "SUM(CASE WHEN v.Comments = 'Unknown' THEN 0 ELSE toInteger(v.Comments) END) AS TotalComments " +
+                    "ORDER BY TotalComments DESC";
+
+            // 记录开始时间
+            long startTime = System.currentTimeMillis();
+
+            // 执行查询并传入 type 参数
+            Result result = session.run(query, new HashMap<String, Object>() {{
+                put("type", type);  // 用于传递电影类型，如 "Action"
+            }});
+
+            // 记录结束时间
+            long endTime = System.currentTimeMillis();
+
+            // 构建响应数据
+            HashMap<String, Object> response = new HashMap<>();
+            response.put("time", endTime - startTime);
+
+            // 存储结果
+            List<HashMap<String, Object>> actorPairs = result.list(record -> {
+                HashMap<String, Object> pairMap = new HashMap<>();
+                pairMap.put("ActorPair", record.get("ActorPair").asList(Value::asString)); // 获取演员组合
+                pairMap.put("TotalComments", record.get("TotalComments").asLong()); // 获取评论总数
+                return pairMap;
+            });
+
+            // 将结果放入响应中
+            response.put("mostAttendedActorPairs", actorPairs);
+            return response;
+        }
+    }
+
+    /**
+     * 查询某类型电影中评分最高的演员组合及其参与的电影数量
+     * @param type 电影类型（如 "Horror"）
+     * @return 评分最高的演员组合及其参与的电影数量
+     */
+    @GetMapping(path = "/highest-rated-actor-pair", produces = "application/json")
+    public HashMap<String, Object> getHighestRatedActorPair(@RequestParam String type) {
+        try (Session session = driver.session()) {
+            // Cypher 查询：获取评分最高的演员组合及其参与的电影数量
+            String query = "MATCH (t:Type {Name: $type})<-[:BELONGS_TO_TYPE]-(m:Movie)-[:HAS_VERSION]->(v:Version), " +
+                    "(m)-[:HAS_ACTOR]->(a1:Actor), " +
+                    "(m)-[:HAS_ACTOR]->(a2:Actor) " +
+                    "WHERE id(a1) < id(a2) " + // 确保每对组合唯一
+                    "RETURN " +
+                    "[a1.Name, a2.Name] AS ActorPair, " +
+                    "AVG(toFloat(v.Grade)) AS AverageScore, " +
+                    "COUNT(m) AS MovieCount " +
+                    "ORDER BY AverageScore DESC, MovieCount DESC";
+
+            // 记录开始时间
+            long startTime = System.currentTimeMillis();
+
+            // 执行查询并传入 type 参数
+            Result result = session.run(query, new HashMap<String, Object>() {{
+                put("type", type);  // 用于传递电影类型，如 "Horror"
+            }});
+
+            // 记录结束时间
+            long endTime = System.currentTimeMillis();
+
+            // 构建响应数据
+            HashMap<String, Object> response = new HashMap<>();
+            response.put("time", endTime - startTime);
+
+            // 存储结果
+            List<HashMap<String, Object>> actorPairs = result.list(record -> {
+                HashMap<String, Object> pairMap = new HashMap<>();
+                pairMap.put("ActorPair", record.get("ActorPair").asList(Value::asString)); // 获取演员组合
+                pairMap.put("AverageScore", record.get("AverageScore").asDouble()); // 获取平均评分
+                pairMap.put("MovieCount", record.get("MovieCount").asLong()); // 获取电影数量
+                return pairMap;
+            });
+
+            // 将结果放入响应中
+            response.put("highestRatedActorPairs", actorPairs);
+            return response;
+        }
+    }
+
+
 }
