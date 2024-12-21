@@ -39,7 +39,7 @@ public interface MovieCombineMapper {
             JOIN
                 date d ON m.date_id=d.date_id
             WHERE
-                d.year = #{year}  -- 请将这里的年份替换为实际的年份
+                d.year = #{year}  
                 AND t.type_id = (
                     SELECT
                         type_id
@@ -55,7 +55,7 @@ public interface MovieCombineMapper {
                             JOIN 
                                 date d ON m.date_id=d.date_id
                             WHERE
-                                d.year = #{year}  -- 请将这里的年份替换为实际的年份
+                                d.year = #{year}  
                             GROUP BY
                                 mt.type_id
                             ORDER BY

@@ -27,13 +27,16 @@ public interface PersonMapper {
     List<MovieRough> findMoviesByActor(@Param("actorName") String actorName);
 
     // 查询某位导演合作过的演员并按合作次数排序
-    // 优化 改成直接建立演员导演合作表
-    @Select("SELECT a.actor_name, dac.cooperation_count  " +
-            "FROM director_actor_cooperation dac " +
-            "JOIN director d ON dac.director_id = d.director_id " +
-            "JOIN actor a ON dac.actor_id = a.actor_id " +
+
+    @Select("SELECT a.actor_name, COUNT(*) AS cooperation_count " +
+            "FROM movie_director md " +
+            "JOIN movie_actor ma ON md.movie_id = ma.movie_id " +
+            "JOIN actor a ON ma.actor_id = a.actor_id " +
+            "JOIN director d ON md.director_id = d.director_id " +
             "WHERE d.director_name = #{directorName} " +
-            "ORDER BY dac.cooperation_count DESC")
+            "AND d.director_name != a.actor_name " +
+            "GROUP BY a.actor_name " +
+            "ORDER BY cooperation_count DESC")
     List<ActorDirectorCooperation> findCooperatingActorsByDirector(@Param("directorName") String directorName);
 
 
