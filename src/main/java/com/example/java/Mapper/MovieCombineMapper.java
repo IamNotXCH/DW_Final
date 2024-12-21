@@ -1,6 +1,5 @@
 package com.example.java.Mapper;
 
-import com.example.java.Entity.Category;
 import com.example.java.Entity.CategoryTopMovies;
 import com.example.java.Entity.MovieYear;
 import org.apache.ibatis.annotations.Mapper;
