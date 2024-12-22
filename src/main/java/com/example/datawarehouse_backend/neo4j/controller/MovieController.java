@@ -4,10 +4,7 @@ import org.springframework.web.bind.annotation.*;
 import org.neo4j.driver.*;
 import org.neo4j.driver.Record;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.Map;
+import java.util.*;
 
 @RestController
 @RequestMapping("/neo4j/movie")
@@ -29,9 +26,9 @@ public class MovieController {
         try (Session session = driver.session()) {
             // Cypher 查询：根据电影发布版本的 ReleaseTime 统计每年发布的电影数量
             String query = "MATCH (m:Movie)-[:HAS_VERSION]->(v:Version) " +
-                    "RETURN v.ReleaseTime AS Year, COUNT(m) AS MovieCount " +
-                    "ORDER BY Year";
-
+                    "WITH m, v, substring(v.ReleaseTime, 0, 4) AS Year " +
+                    "RETURN Year AS ReleaseYear, COUNT(DISTINCT m) AS MovieCount " +
+                    "ORDER BY MovieCount DESC";
             // 记录开始时间
             long startTime = System.currentTimeMillis();
 
@@ -48,7 +45,7 @@ public class MovieController {
             // 将查询结果转换为 List
             List<HashMap<String, Object>> movieCountList = result.list(record -> {
                 HashMap<String, Object> countMap = new HashMap<>();
-                countMap.put("year", record.get("Year").asString());  // 电影发布年份
+                countMap.put("year", record.get("ReleaseYear").asString());  // 电影发布年份
                 countMap.put("movieCount", record.get("MovieCount").asLong());  // 电影数量
                 return countMap;
             });
@@ -67,78 +64,119 @@ public class MovieController {
     @GetMapping(path = "/movie-count-by-month", produces = "application/json")
     public HashMap<String, Object> getMovieCountByMonth(@RequestParam String yearMonth) {
         try (Session session = driver.session()) {
-            // Cypher 查询：根据电影发布版本的 ReleaseTime 统计每月发布的电影数量
+            // Cypher 查询：根据电影发布版本的 ReleaseTime 获取电影名称和评分，并去重电影名称
             String query = "MATCH (m:Movie)-[:HAS_VERSION]->(v:Version) " +
                     "WHERE v.ReleaseTime STARTS WITH $yearMonth " +
-                    "RETURN COUNT(DISTINCT m) AS MovieCount";
+                    "WITH m.Name AS MovieName, COLLECT(DISTINCT v.Grade) AS Grades, COLLECT(DISTINCT v.ReleaseTime) AS Time " +
+                    "RETURN MovieName, HEAD(Grades) AS MovieGrade, HEAD(Time) AS MovieReleaseTime";
+
             // 记录开始时间
             long startTime = System.currentTimeMillis();
+
             // 执行查询，并传入 yearMonth 参数
             Result result = session.run(query, new HashMap<String, Object>() {{
                 put("yearMonth", yearMonth);  // 用于传递 yearMonth 参数，如 '2024/12'
             }});
+
             // 记录结束时间
             long endTime = System.currentTimeMillis();
+
             // 获取结果
             HashMap<String, Object> response = new HashMap<>();
             response.put("time", endTime - startTime);
-            if (result.hasNext()) {
-                response.put("MovieCount", result.next().get("MovieCount").asLong());
-            } else {
-                response.put("MovieCount", 0L);  // 如果没有结果，返回 0
-            }
+
+            // 存储去重后的电影名称和对应的评分
+            List<HashMap<String, Object>> movies = result.list(record -> {
+                HashMap<String, Object> movieMap = new HashMap<>();
+                movieMap.put("MovieName", record.get("MovieName").asString());
+                movieMap.put("MovieGrade", record.get("MovieGrade").asString());
+                return movieMap;
+            });
+
+            // 将电影列表放入响应中
+            response.put("movies", movies);
+
+            // 统计去重后的电影数量
+            long movieCount = movies.size();  // 因为返回的是去重后的电影名称，所以计算大小即为电影数量
+            response.put("MovieCount", movieCount);
 
             return response;
         }
     }
 
-    @GetMapping(path = "/movie-count-by-quarter", produces = "application/json")
-    public HashMap<String, Object> getMovieCountByQuarter(@RequestParam String year) {
-        HashMap<String, Object> response = new HashMap<>();
+    @GetMapping(path = "/movie-details-by-quarter", produces = "application/json")
+    public HashMap<String, Object> getMovieDetailsByQuarter(@RequestParam String year, @RequestParam int quarter) {
         try (Session session = driver.session()) {
-            // Cypher 查询：根据电影发布版本的 ReleaseTime 统计特定年份和季度发布的电影数量
+            // 根据季度选择相应的月份
+            List<Integer> months = new ArrayList<>();
+            switch (quarter) {
+                case 1:
+                    months = Arrays.asList(1, 2, 3);  // 第一季度：1, 2, 3月
+                    break;
+                case 2:
+                    months = Arrays.asList(4, 5, 6);  // 第二季度：4, 5, 6月
+                    break;
+                case 3:
+                    months = Arrays.asList(7, 8, 9);  // 第三季度：7, 8, 9月
+                    break;
+                case 4:
+                    months = Arrays.asList(10, 11, 12); // 第四季度：10, 11, 12月
+                    break;
+                default:
+                    throw new IllegalArgumentException("Invalid quarter: " + quarter); // 无效季度
+            }
+
+            // 构造 Cypher 查询
             String query = "MATCH (m:Movie)-[:HAS_VERSION]->(v:Version) " +
-                    "WHERE v.ReleaseTime STARTS WITH $year " +  // 匹配年份
-                    "AND toInteger(split(v.ReleaseTime, '/')[1]) IN [1, 2, 3] " +  // 匹配季度
-                    "RETURN COUNT(DISTINCT m) AS MovieCount";
+                    "WHERE v.ReleaseTime STARTS WITH $year " + // 确保年份匹配
+                    "AND toInteger(split(v.ReleaseTime, '/')[1]) IN $months " + // 只选择指定季度的月份
+                    "WITH m.Name AS MovieName, COLLECT(DISTINCT v.Grade) AS Grades, COLLECT(DISTINCT v.ReleaseTime) AS Time " +
+                    "RETURN MovieName, HEAD(Grades) AS MovieGrade, HEAD(Time) AS MovieReleaseTime";
 
             // 记录开始时间
             long startTime = System.currentTimeMillis();
 
-            // 执行查询，并传入 year 参数
+            // 执行查询，并传入 year 和 months 参数
+            List<Integer> finalMonths = months;
             Result result = session.run(query, new HashMap<String, Object>() {{
-                put("year", year);  // 用于传递 year 参数，如 '2001'
+                put("year", year);  // 用于传递年份参数，如 '2001'
+                put("months", finalMonths);  // 用于传递选择的月份列表
             }});
 
             // 记录结束时间
             long endTime = System.currentTimeMillis();
 
-            // 计算执行时间
-            response.put("time", endTime - startTime); // 执行时间（单位：毫秒）
-
             // 获取结果
-            if (result.hasNext()) {
-                response.put("MovieCount", result.next().get("MovieCount").asLong());
-                response.put("status", "success");  // 查询成功
-            } else {
-                response.put("MovieCount", 0L);  // 如果没有结果，返回 0
-                response.put("status", "no_data");  // 没有数据
-            }
-        } catch (Exception e) {
-            response.put("status", "error");  // 处理异常情况
-            response.put("message", e.getMessage());
+            HashMap<String, Object> response = new HashMap<>();
+            response.put("time", endTime - startTime);
+
+            // 存储查询结果
+            List<HashMap<String, Object>> movies = result.list(record -> {
+                HashMap<String, Object> movie = new HashMap<>();
+                movie.put("MovieName", record.get("MovieName").asString());
+                movie.put("MovieGrade", record.get("MovieGrade").asString());
+                movie.put("MovieReleaseTime", record.get("MovieReleaseTime").asString());
+                return movie;
+            });
+
+            response.put("movies", movies);
+            // 统计去重后的电影数量
+            long movieCount = movies.size();  // 因为返回的是去重后的电影名称，所以计算大小即为电影数量
+            response.put("MovieCount", movieCount);
+
+            return response;
         }
-        return response;
     }
 
     @GetMapping(path = "/movie-version-count", produces = "application/json")
     public HashMap<String, Object> getMovieVersionCount(@RequestParam String movieName) {
         HashMap<String, Object> response = new HashMap<>();
         try (Session session = driver.session()) {
-            // Cypher 查询：根据电影名称统计电影的版本数量
+            // Cypher 查询：根据电影名称列出所有版本的评分和发行时间
             String query = "MATCH (m:Movie)-[:HAS_VERSION]->(v:Version) " +
                     "WHERE m.Name =~ '(?i).*' + $movieName + '.*' " +  // 模糊匹配电影名称，不区分大小写
-                    "RETURN COUNT(distinct v.Version) AS VersionCount";
+                    "RETURN m.Name AS MovieName, v.Grade AS MovieGrade, v.ReleaseTime AS MovieReleaseTime " +
+                    "ORDER BY v.ReleaseTime";  // 按照版本的 ReleaseTime 排序（可选）
 
             // 记录开始时间
             long startTime = System.currentTimeMillis();
@@ -154,14 +192,27 @@ public class MovieController {
             // 计算执行时间
             response.put("time", endTime - startTime); // 执行时间（单位：毫秒）
 
-            // 获取结果
-            if (result.hasNext()) {
-                response.put("VersionCount", result.next().get("VersionCount").asLong());
+            // 获取结果并构建响应
+            List<Map<String, Object>> versions = new ArrayList<>();
+            int versionCount = 0;  // 版本计数器
+            while (result.hasNext()) {
+                Record record = result.next();
+                Map<String, Object> version = new HashMap<>();
+                version.put("MovieName", record.get("MovieName").asString());
+                version.put("MovieGrade", record.get("MovieGrade").asString());
+                version.put("MovieReleaseTime", record.get("MovieReleaseTime").asString());
+                versions.add(version);
+                versionCount++;  // 每处理一个版本，计数加 1
+            }
+
+            if (!versions.isEmpty()) {
+                response.put("VersionCount", versionCount);  // 返回版本数量
+                response.put("versions", versions);  // 返回所有版本的列表
                 response.put("status", "success");  // 查询成功
             } else {
-                response.put("VersionCount", 0L);  // 如果没有结果，返回 0
-                response.put("status", "no_data");  // 没有数据
+                response.put("status", "no_data");  // 如果没有数据，返回 no_data
             }
+
         } catch (Exception e) {
             response.put("status", "error");  // 处理异常情况
             response.put("message", e.getMessage());
@@ -174,12 +225,12 @@ public class MovieController {
      * @param categoryName 电影类别名称
      * @return 某个类别的电影数量
      */
-    @GetMapping(path = "/movie-count-by-category", produces = "application/json")
-    public HashMap<String, Object> getMovieCountByCategory(@RequestParam String categoryName) {
+    @GetMapping(path = "/movies-by-category", produces = "application/json")
+    public HashMap<String, Object> getMoviesByCategory(@RequestParam String categoryName) {
         try (Session session = driver.session()) {
-            // Cypher 查询：根据电影所属类别统计该类别的电影总数
+            // Cypher 查询：根据电影所属类别获取该类别的电影名称
             String query = "MATCH (m:Movie)-[:BELONGS_TO_TYPE]->(t:Type {Name: $categoryName}) " +
-                    "RETURN COUNT(m) AS MovieCount";
+                    "RETURN m.Name AS MovieName";
 
             // 记录开始时间
             long startTime = System.currentTimeMillis();
@@ -194,16 +245,26 @@ public class MovieController {
 
             // 构建响应数据
             HashMap<String, Object> response = new HashMap<>();
-            response.put("time", endTime - startTime);
+            response.put("time", endTime - startTime); // 执行时间
 
-            // 获取结果
-            if (result.hasNext()) {
-                response.put("MovieCount", result.next().get("MovieCount").asLong());
-            } else {
-                response.put("MovieCount", 0L);  // 如果没有结果，返回 0
+            // 存储电影名称列表
+            List<String> movieNames = new ArrayList<>();
+            while (result.hasNext()) {
+                Record record = result.next();
+                movieNames.add(record.get("MovieName").asString());
             }
 
+            // 构建响应数据
+            response.put("movies", movieNames);  // 电影名称列表
+            response.put("MovieCount", movieNames.size());  // 电影数量
+
             return response;
+        } catch (Exception e) {
+            // 异常处理
+            HashMap<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("status", "error");
+            errorResponse.put("message", e.getMessage());
+            return errorResponse;
         }
     }
 
@@ -214,11 +275,14 @@ public class MovieController {
      */
     @GetMapping(path = "/movies-above-grade", produces = "application/json")
     public HashMap<String, Object> getMoviesAboveGrade(@RequestParam float gradeThreshold) {
+        HashMap<String, Object> response = new HashMap<>();
         try (Session session = driver.session()) {
             // Cypher 查询：获取用户评分高于指定值的电影
             String query = "MATCH (m:Movie)-[:HAS_VERSION]->(v:Version) " +
-                    "WHERE toFloat(v.Grade) > $gradeThreshold " +
-                    "RETURN Distinct m.Name, v.Grade";
+                    "WHERE toFloat(v.Grade) >= $gradeThreshold " +
+                    "WITH m.Name AS MovieName, COLLECT(DISTINCT v.Grade) AS Grades, COLLECT(DISTINCT v.ReleaseTime) AS Times " +
+                    "RETURN MovieName, HEAD(Grades) AS MovieGrade, HEAD(Times) AS MovieReleaseTime "+
+                    "LIMIT 100";
 
             // 记录开始时间
             long startTime = System.currentTimeMillis();
@@ -232,32 +296,26 @@ public class MovieController {
             long endTime = System.currentTimeMillis();
 
             // 构建响应数据
-            HashMap<String, Object> response = new HashMap<>();
-            response.put("time", endTime - startTime);
+            response.put("time", endTime - startTime); // 执行时间
 
             // 存储结果
             List<HashMap<String, Object>> moviesList = result.list(record -> {
                 HashMap<String, Object> movieMap = new HashMap<>();
-                movieMap.put("MovieName", record.get("m.Name").asString());
-
-                // 处理评分字段，确保它是一个有效的数字
-                String gradeStr = record.get("v.Grade").asString();
-                double grade = 0;
-                try {
-                    grade = Double.parseDouble(gradeStr);  // 直接使用 double 处理评分
-                } catch (NumberFormatException e) {
-                    // 如果转换失败，可以选择日志记录或者设置一个默认值
-                    grade = 0;
-                }
-                movieMap.put("Grade", grade);
-
+                movieMap.put("MovieName", record.get("MovieName").asString());
+                movieMap.put("MovieGrade", record.get("MovieGrade").asString());
+                movieMap.put("MovieReleaseTime", record.get("MovieReleaseTime").asString());
                 return movieMap;
             });
 
             // 将结果放入响应中
             response.put("moviesAboveGrade", moviesList);
-            return response;
+            response.put("status", "success"); // 标识查询成功
+        } catch (Exception e) {
+            // 处理异常
+            response.put("status", "error");
+            response.put("message", e.getMessage());
         }
+        return response;
     }
 
     /**
@@ -299,52 +357,55 @@ public class MovieController {
     }
 
     /**
-     * 查询某类别的电影中，与最多演员组合合作的导演及其合作的电影总数
-     * @param category 类别名称（如：Drama）
-     * @return 导演与演员组合及其合作的电影总数
+     * 获取某类型电影中评论最多的演员组合
+     * @param type 电影类型（如 "Action"）
+     * @return 演员组合及其总评论数
      */
-    @GetMapping(path = "/directors-with-most-actor-collaborations", produces = "application/json")
-    public Map<String, Object> getDirectorsWithMostActorCollaborations(@RequestParam String category) {
-        // Cypher 查询：获取指定类别的电影中，与最多演员组合合作的导演及其合作的电影总数
-        String query = "MATCH (t:Type {Name: $category})<-[:BELONGS_TO_TYPE]-(m:Movie) " +
-                "MATCH (m)-[:HAS_DIRECTOR]->(d:Director), " +
-                "(m)-[:HAS_ACTOR]->(a1:Actor), " +
-                "(m)-[:HAS_ACTOR]->(a2:Actor) " +
-                "WHERE id(a1) < id(a2) " + // 确保每对演员组合唯一
-                "RETURN d.Name AS DirectorName, " +
-                "[a1.Name, a2.Name] AS ActorPair, " +
-                "COUNT(m) AS CollaborationCount " +
-                "ORDER BY CollaborationCount DESC " +
-                "LIMIT 5";
-
-        // 记录开始时间
-        long startTime = System.currentTimeMillis();
-
+    @GetMapping(path = "/most-commented-actor-pairs", produces = "application/json")
+    public HashMap<String, Object> getMostCommentedActorPairs(@RequestParam String type) {
+        HashMap<String, Object> response = new HashMap<>();
         try (Session session = driver.session()) {
-            // 执行查询，并传入类别参数
-            Result result = session.run(query, Map.of("category", category));
+            // Cypher 查询：获取某类型电影中评论最多的演员组合
+            String query = "MATCH (t:Type {Name: $type})<-[:BELONGS_TO_TYPE]-(m:Movie)-[:HAS_VERSION]->(v:Version), " +
+                    "(m)-[:HAS_ACTOR]->(a1:Actor), " +
+                    "(m)-[:HAS_ACTOR]->(a2:Actor) " +
+                    "WHERE id(a1) < id(a2) " + // 确保每对组合唯一
+                    "RETURN " +
+                    "[a1.Name, a2.Name] AS ActorPair, " +
+                    "SUM(CASE WHEN v.Comments = 'Unknown' THEN 0 ELSE toInteger(v.Comments) END) AS TotalComments " +
+                    "ORDER BY TotalComments DESC";
 
-            // 存储查询结果
-            List<Map<String, Object>> collaborationList = new ArrayList<>();
-            while (result.hasNext()) {
-                Record record = result.next();
-                Map<String, Object> collaborationMap = new HashMap<>();
-                collaborationMap.put("DirectorName", record.get("DirectorName").asString());
-                collaborationMap.put("ActorPair", record.get("ActorPair").asList(value -> value.asString()));
-                collaborationMap.put("CollaborationCount", record.get("CollaborationCount").asInt());
-                collaborationList.add(collaborationMap);
-            }
+            // 记录开始时间
+            long startTime = System.currentTimeMillis();
+
+            // 执行查询并传入类型参数
+            Result result = session.run(query, new HashMap<String, Object>() {{
+                put("type", type); // 传入电影类型（如 "Action"）
+            }});
 
             // 记录结束时间
             long endTime = System.currentTimeMillis();
 
             // 构建响应数据
-            Map<String, Object> response = new HashMap<>();
-            response.put("collaborations", collaborationList);
-            response.put("executionTime", endTime - startTime); // 返回查询时间
+            response.put("time", endTime - startTime); // 执行时间
 
-            return response;
+            // 存储结果
+            List<HashMap<String, Object>> actorPairs = result.list(record -> {
+                HashMap<String, Object> pairMap = new HashMap<>();
+                pairMap.put("ActorPair", record.get("ActorPair").asList(Value::asString)); // 演员组合
+                pairMap.put("TotalComments", record.get("TotalComments").asLong()); // 总评论数
+                return pairMap;
+            });
+
+            // 将结果放入响应中
+            response.put("mostCommentedActorPairs", actorPairs);
+            response.put("status", "success"); // 查询成功
+        } catch (Exception e) {
+            // 处理异常
+            response.put("status", "error");
+            response.put("message", e.getMessage());
         }
+        return response;
     }
 
     /**
@@ -363,7 +424,8 @@ public class MovieController {
                 "AND r.score > 4 AND r.is_positive = true " +
                 "RETURN [a1.Name, a2.Name] AS ActorPair, " +
                 "COUNT(DISTINCT m) AS PositiveMovieCount " +
-                "ORDER BY PositiveMovieCount DESC";
+                "ORDER BY PositiveMovieCount DESC "+
+                "LIMIT 100";
 
         // 记录开始时间
         long startTime = System.currentTimeMillis();
