@@ -30,7 +30,7 @@ public class SupplementController {
     }
 
     @GetMapping("/moviesWithMultipleVersions")
-    public QueryResultDTO<List<List<Object>>> getMoviesWithMultipleVersions() {
+    public QueryResultDTO<List<List<String>>> getMoviesWithMultipleVersions() {
         return supplementService.getMoviesWithMultipleVersions();
     }
 }

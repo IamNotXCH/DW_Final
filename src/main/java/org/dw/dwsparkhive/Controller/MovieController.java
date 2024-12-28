@@ -15,17 +15,17 @@ public class MovieController {
     private MovieService movieService;
 
     @GetMapping("/versionCount")
-    public QueryResultDTO<Long> getMovieVersionCount(@RequestParam String movieName) {
+    public QueryResultDTO<List<String>> getMovieVersionCount(@RequestParam String movieName) {
         return movieService.getMovieVersionCount(movieName);
     }
 
     @GetMapping("/countByType")
-    public QueryResultDTO<Long> getMovieCountByType(@RequestParam String typeName) {
+    public QueryResultDTO<List<String>> getMovieCountByType(@RequestParam String typeName) {
         return movieService.getMovieCountByType(typeName);
     }
 
     @GetMapping("/harryPotter")
-    public QueryResultDTO<List<Object>> getHarryPotterMovies() {
+    public QueryResultDTO<List<String>> getHarryPotterMovies() {
         return movieService.getHarryPotterMovies();
     }
 }

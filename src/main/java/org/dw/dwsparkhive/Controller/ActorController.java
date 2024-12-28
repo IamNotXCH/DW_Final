@@ -19,8 +19,13 @@ public class ActorController {
         return actorService.getActorMovieCount(actorName);
     }
 
-    @GetMapping("/positiveReviewedMovies")
-    public QueryResultDTO<List<String>> getPositiveReviewedMovies() {
-        return actorService.getPositiveReviewedMovies();
+    @GetMapping("/frequentActorPairs")
+    public QueryResultDTO<List<List<String>>> getFrequentActorPairs() {
+        return actorService.getFrequentActorPairs();
+    }
+
+    @GetMapping("/popularActorPairs")
+    public QueryResultDTO<List<List<String>>> getPopularActorPairsByType(@RequestParam String typeName) {
+        return actorService.getPopularActorPairsByType(typeName);
     }
 }

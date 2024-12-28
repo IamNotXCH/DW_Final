@@ -15,12 +15,7 @@ public class DirectorController {
     private DirectorService directorService;
 
     @GetMapping("/movieCount")
-    public QueryResultDTO<Long> getDirectorMovieCount(@RequestParam String directorName) {
+    public QueryResultDTO<List<String>> getDirectorMovieCount(@RequestParam String directorName) {
         return directorService.getDirectorMovieCount(directorName);
-    }
-
-    @GetMapping("/collaborations")
-    public QueryResultDTO<List<List<String>>> getDirectorsWithActors() {
-        return directorService.getDirectorsWithActors();
     }
 }

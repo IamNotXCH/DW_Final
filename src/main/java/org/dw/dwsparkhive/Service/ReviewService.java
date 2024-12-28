@@ -12,22 +12,53 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
-public class ActorService {
+public class ReviewService {
 
     @Autowired
     private SparkSession sparkSession;
 
-    // 4. 获取指定演员参演的电影数量，并列出前五部电影
-    public QueryResultDTO<List<Object>> getActorMovieCount(String actorName) {
+    // 7 用户评分高于4.5的电影
+    public QueryResultDTO<List<String>> getHighScoreMovies() {
         long startTime = System.currentTimeMillis();
 
-        String query = String.format(
-                "SELECT m.name AS MovieName " +
-                        "FROM Actor a " +
-                        "JOIN Movie_Actor ma ON a.actorId = ma.actorId " +
-                        "JOIN Movie m ON ma.movieId = m.movieId " +
-                        "WHERE a.actorName = '%s' " +
-                        "LIMIT 5", escapeSQL(actorName));
+        String query =
+                "SELECT m.name AS MovieName, COUNT(r.comment_id) AS HighScoreCount " +
+                        "FROM Movie m " +
+                        "JOIN Movie_Version mv ON m.movieId = mv.movieId " +
+                        "JOIN Movie_Version_Web mvw ON mv.versionId = mvw.versionId " +
+                        "JOIN Review r ON mvw.ASIN = r.product_id " +
+                        "WHERE CAST(r.score AS DOUBLE) > 4.5 " +
+                        "GROUP BY m.name " +
+                        "ORDER BY HighScoreCount DESC";
+
+        Dataset<Row> result = sparkSession.sql(query);
+
+        List<Row> rows = result.collectAsList();
+        List<String> data = rows.stream()
+                .map(row -> {
+                    String movieName = row.getAs("MovieName");
+                    Long highScoreCount = row.getAs("HighScoreCount");
+                    return movieName + ": " + highScoreCount;
+                })
+                .collect(Collectors.toList());
+
+        long endTime = System.currentTimeMillis();
+        long duration = endTime - startTime;
+
+        return new QueryResultDTO<>(data, duration);
+    }
+
+    // 7. 用户评价中有正面评价的电影
+    public QueryResultDTO<List<Object>> getPositiveReviewedMovies() {
+        long startTime = System.currentTimeMillis();
+
+        String query =
+                "SELECT DISTINCT m.name AS MovieName " +
+                        "FROM Movie m " +
+                        "JOIN Movie_Version mv ON m.movieId = mv.movieId " +
+                        "JOIN Movie_Version_Web mvw ON mv.versionId = mvw.versionId " +
+                        "JOIN Review r ON mvw.ASIN = r.product_id " +
+                        "WHERE CAST(r.score AS DOUBLE) > 4 AND r.is_positive = 'True'";
 
         Dataset<Row> result = sparkSession.sql(query);
 
@@ -41,45 +72,12 @@ public class ActorService {
         return new QueryResultDTO<>(data, duration);
     }
 
-    // 5. 常合作的演员组合
-    public QueryResultDTO<List<List<String>>> getFrequentActorPairs() {
-        long startTime = System.currentTimeMillis();
-
-        String query =
-                "SELECT a1.actorName AS Actor1, a2.actorName AS Actor2, COUNT(*) AS MovieCount " +
-                        "FROM Actor a1 " +
-                        "JOIN Movie_Actor ma1 ON a1.actorId = ma1.actorId " +
-                        "JOIN Movie m ON ma1.movieId = m.movieId " +
-                        "JOIN Movie_Actor ma2 ON m.movieId = ma2.movieId " +
-                        "JOIN Actor a2 ON ma2.actorId = a2.actorId " +
-                        "WHERE a1.actorId < a2.actorId " +
-                        "GROUP BY a1.actorName, a2.actorName " +
-                        "HAVING COUNT(*) > 1 " +  // Alternatively, HAVING MovieCount > 1
-                        "ORDER BY MovieCount DESC" +
-                        "LIMIT 10000";
-
-        Dataset<Row> result = sparkSession.sql(query);
-
-        List<List<String>> actorPairs = result.collectAsList().stream()
-                .map(row -> Arrays.asList(
-                        row.getAs("Actor1"),
-                        row.getAs("Actor2"),
-                        String.valueOf(row.getAs("MovieCount"))  // Convert Long to String
-                ))
-                .collect(Collectors.toList());
-
-        long endTime = System.currentTimeMillis();
-        long duration = endTime - startTime;
-
-        return new QueryResultDTO<>(actorPairs, duration);
-    }
-
-    // 8. 如果要拍一部XXX类型的电影，最受关注的演员组合
-    public QueryResultDTO<List<List<String>>> getPopularActorPairsByType(String typeName) {
+    // 9. 查询某演员组合中，参与正面评价最多的某类别电影
+    public QueryResultDTO<List<List<String>>> getTopActorPairsByTypeWithMostPositiveReviews(String typeName) {
         long startTime = System.currentTimeMillis();
 
         String query = String.format(
-                "SELECT a1.actorName AS Actor1, a2.actorName AS Actor2, COUNT(r.comment_id) AS CommentCount " +
+                "SELECT a1.actorName AS Actor1, a2.actorName AS Actor2, COUNT(r.comment_id) AS PositiveReviewCount " +
                         "FROM Type t " +
                         "JOIN Movie_Type mt ON t.typeId = mt.typeId " +
                         "JOIN Movie m ON mt.movieId = m.movieId " +
@@ -90,9 +88,13 @@ public class ActorService {
                         "JOIN Actor a1 ON ma1.actorId = a1.actorId " +
                         "JOIN Movie_Actor ma2 ON m.movieId = ma2.movieId " +
                         "JOIN Actor a2 ON ma2.actorId = a2.actorId " +
-                        "WHERE t.typeName = '%s' AND a1.actorId < a2.actorId " +
+                        "WHERE t.typeName = '%s' " +
+                        "AND a1.actorId < a2.actorId " + // 确保每对组合唯一
+                        "AND r.score > 4 " +
+                        "AND r.is_positive = 'True' " +
+                        "AND r.comment_id <> 'Unknown' " + // 忽略评论数为 "Unknown" 的情况
                         "GROUP BY a1.actorName, a2.actorName " +
-                        "ORDER BY CommentCount DESC " +
+                        "ORDER BY PositiveReviewCount DESC " +
                         "LIMIT 100", escapeSQL(typeName));
 
         Dataset<Row> result = sparkSession.sql(query);
@@ -101,7 +103,7 @@ public class ActorService {
                 .map(row -> Arrays.asList(
                         row.getAs("Actor1"),
                         row.getAs("Actor2"),
-                        row.getAs("CommentCount").toString()
+                        row.getAs("PositiveReviewCount").toString()
                 ))
                 .collect(Collectors.toList());
 

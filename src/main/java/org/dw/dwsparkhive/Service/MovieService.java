@@ -17,44 +17,95 @@ public class MovieService {
     @Autowired
     private SparkSession sparkSession;
 
-    // 2. XX电影共有多少版本
-    public QueryResultDTO<Long> getMovieVersionCount(String movieName) {
+    // 2. 获取指定电影的版本数量
+    public QueryResultDTO<List<String>> getMovieVersionCount(String movieName) {
+        long startTime = System.currentTimeMillis();
+
         String query = String.format(
-                "SELECT COUNT(DISTINCT v.Version) AS VersionCount " +
-                        "FROM Movie m JOIN Version v ON m.Id = v.MovieId " +
-                        "WHERE m.Name LIKE '%%%s%%'", movieName);
+                "SELECT m.name AS MovieName, COUNT(mv.versionId) AS VersionCount, COLLECT_LIST(mv.versionId) AS VersionIds " +
+                        "FROM Movie m " +
+                        "JOIN Movie_Version mv ON m.movieId = mv.movieId " +
+                        "WHERE m.name LIKE '%%%s%%' " +
+                        "GROUP BY m.name", escapeSQL(movieName));
 
         Dataset<Row> result = sparkSession.sql(query);
-        return new QueryResultDTO<>(result.first().getLong(0), System.currentTimeMillis());
+
+        List<String> data = result.collectAsList().stream()
+                .map(row -> {
+                    String movieNameResult = row.getAs("MovieName");
+                    Long versionCount = row.getAs("VersionCount");
+                    List<String> versionIds = row.getList(row.fieldIndex("VersionIds"));
+                    return "Movie: " + movieNameResult + ", Version Count: " + versionCount + ", Versions: " + String.join(", ", versionIds);
+                })
+                .collect(Collectors.toList());
+
+        long endTime = System.currentTimeMillis();
+        long duration = endTime - startTime;
+
+        return new QueryResultDTO<>(data, duration);
     }
 
-    // 6. 某类别的电影总数
-    public QueryResultDTO<Long> getMovieCountByType(String typeName) {
+    // 6. 获取指定类型的电影总数
+    public QueryResultDTO<List<String>> getMovieCountByType(String typeName) {
+        long startTime = System.currentTimeMillis();
+
         String query = String.format(
-                "SELECT COUNT(m) AS MovieCount " +
-                        "FROM Movie m JOIN Type t ON m.TypeId = t.Id " +
-                        "WHERE t.Name = '%s'", typeName);
+                "SELECT COUNT(m.movieId) AS MovieCount, COLLECT_LIST(m.name) AS MovieNames " +
+                        "FROM Movie m " +
+                        "JOIN Movie_Type mt ON m.movieId = mt.movieId " +
+                        "JOIN Type t ON mt.typeId = t.typeId " +
+                        "WHERE t.typeName = '%s' " +
+                        "GROUP BY t.typeName", escapeSQL(typeName));
 
         Dataset<Row> result = sparkSession.sql(query);
-        return new QueryResultDTO<>(result.first().getLong(0), System.currentTimeMillis());
+
+        List<String> data = result.collectAsList().stream()
+                .map(row -> {
+                    String count = row.getAs("MovieCount").toString();
+                    List<String> movieNames = row.getList(row.fieldIndex("MovieNames"));
+                    return "Count: " + count + ", Movies: " + String.join(", ", movieNames);
+                })
+                .collect(Collectors.toList());
+
+        long endTime = System.currentTimeMillis();
+        long duration = endTime - startTime;
+
+        return new QueryResultDTO<>(data, duration);
     }
 
-    // 10. 查找哈利波特系列的电影
-    public QueryResultDTO<List<Object>> getHarryPotterMovies() {
+    // 10. 查找哈利波特系列的电影相关统计
+    public QueryResultDTO<List<String>> getHarryPotterMovies() {
+        long startTime = System.currentTimeMillis();
+
         String query =
-                "SELECT COUNT(m.Name) AS movieCount, COUNT(DISTINCT m.Name) AS movieDistinctCount, " +
-                        "COUNT(v.Version) AS VersionCount, COUNT(DISTINCT v.Version) AS VersionDistinctCount " +
-                        "FROM Movie m JOIN Version v ON m.Id = v.MovieId " +
-                        "WHERE m.Name LIKE '%Harry Potter%'";
+                "SELECT COUNT(m.name) AS movieCount, " +
+                        "       COUNT(DISTINCT m.name) AS movieDistinctCount, " +
+                        "       COUNT(mv.versionId) AS VersionCount, " +
+                        "       COUNT(DISTINCT mv.versionId) AS VersionDistinctCount " +
+                        "FROM Movie m " +
+                        "JOIN Movie_Version mv ON m.movieId = mv.movieId " +
+                        "WHERE m.name LIKE '%Harry Potter%'";
 
         Dataset<Row> result = sparkSession.sql(query);
-        List<Object> counts = Arrays.asList(
-                result.first().getLong(0),
-                result.first().getLong(1),
-                result.first().getLong(2),
-                result.first().getLong(3)
+        Row row = result.first();
+
+        List<String> counts = Arrays.asList(
+                "Movie Count: " + row.getAs("movieCount").toString(),
+                "Distinct Movie Count: " + row.getAs("movieDistinctCount").toString(),
+                "Version Count: " + row.getAs("VersionCount").toString(),
+                "Distinct Version Count: " + row.getAs("VersionDistinctCount").toString()
         );
 
-        return new QueryResultDTO<>(counts, System.currentTimeMillis());
+        long endTime = System.currentTimeMillis();
+        long duration = endTime - startTime;
+
+        return new QueryResultDTO<>(counts, duration);
+    }
+
+    private String escapeSQL(String input) {
+        if (input == null) {
+            return "";
+        }
+        return input.replace("'", "''");
     }
 }
