@@ -46,17 +46,19 @@ public class ActorService {
         long startTime = System.currentTimeMillis();
 
         String query =
-                "SELECT a1.actorName AS Actor1, a2.actorName AS Actor2, COUNT(*) AS MovieCount " +
+                "SELECT " +
+                        "    a1.actorName AS Actor1, " +
+                        "    a2.actorName AS Actor2, " +
+                        "    COUNT(*) AS MovieCount " +
                         "FROM Actor a1 " +
                         "JOIN Movie_Actor ma1 ON a1.actorId = ma1.actorId " +
-                        "JOIN Movie m ON ma1.movieId = m.movieId " +
-                        "JOIN Movie_Actor ma2 ON m.movieId = ma2.movieId " +
+                        "JOIN Movie_Actor ma2 ON ma1.movieId = ma2.movieId " +
                         "JOIN Actor a2 ON ma2.actorId = a2.actorId " +
                         "WHERE a1.actorId < a2.actorId " +
                         "GROUP BY a1.actorName, a2.actorName " +
-                        "HAVING COUNT(*) > 1 " +  // Alternatively, HAVING MovieCount > 1
-                        "ORDER BY MovieCount DESC" +
-                        "LIMIT 10000";
+                        "HAVING COUNT(*) > 1 " +
+                        "ORDER BY MovieCount DESC " +
+                        "LIMIT 100";
 
         Dataset<Row> result = sparkSession.sql(query);
 
@@ -64,7 +66,7 @@ public class ActorService {
                 .map(row -> Arrays.asList(
                         row.getAs("Actor1"),
                         row.getAs("Actor2"),
-                        String.valueOf(row.getAs("MovieCount"))  // Convert Long to String
+                        String.valueOf(row.getLong(row.fieldIndex("MovieCount")))
                 ))
                 .collect(Collectors.toList());
 
@@ -73,6 +75,7 @@ public class ActorService {
 
         return new QueryResultDTO<>(actorPairs, duration);
     }
+
 
     // 8. 如果要拍一部XXX类型的电影，最受关注的演员组合
     public QueryResultDTO<List<List<String>>> getPopularActorPairsByType(String typeName) {

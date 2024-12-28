@@ -32,7 +32,7 @@ public class CollaborationService {
                         "JOIN Actor a ON ma.actorId = a.actorId " +
                         "GROUP BY d.directorName, a.actorName " +
                         "HAVING COUNT(m.movieId) > 1 " +
-                        "ORDER BY MovieCount DESC" +
+                        "ORDER BY MovieCount DESC " +
                         "LIMIT 100";
 
         Dataset<Row> result = sparkSession.sql(query);

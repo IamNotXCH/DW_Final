@@ -15,8 +15,8 @@ public class ReviewController {
     private ReviewService reviewService;
 
     @GetMapping("/highScoreMovies")
-    public QueryResultDTO<List<String>> getHighScoreMovies() {
-        return reviewService.getHighScoreMovies();
+    public QueryResultDTO<List<String>> getHighScoreMovies(@RequestParam double scoreThreshold) {
+        return reviewService.getHighScoreMovies(scoreThreshold);
     }
 
     @GetMapping("/positiveReviewedMovies")

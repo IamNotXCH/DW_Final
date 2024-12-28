@@ -17,19 +17,19 @@ public class ReviewService {
     @Autowired
     private SparkSession sparkSession;
 
-    // 7 用户评分高于4.5的电影
-    public QueryResultDTO<List<String>> getHighScoreMovies() {
+    // 用户评分高于指定分数的电影
+    public QueryResultDTO<List<String>> getHighScoreMovies(double scoreThreshold) {
         long startTime = System.currentTimeMillis();
 
-        String query =
+        String query = String.format(
                 "SELECT m.name AS MovieName, COUNT(r.comment_id) AS HighScoreCount " +
                         "FROM Movie m " +
                         "JOIN Movie_Version mv ON m.movieId = mv.movieId " +
                         "JOIN Movie_Version_Web mvw ON mv.versionId = mvw.versionId " +
                         "JOIN Review r ON mvw.ASIN = r.product_id " +
-                        "WHERE CAST(r.score AS DOUBLE) > 4.5 " +
+                        "WHERE CAST(r.score AS DOUBLE) > %f " +
                         "GROUP BY m.name " +
-                        "ORDER BY HighScoreCount DESC";
+                        "ORDER BY HighScoreCount DESC", scoreThreshold);
 
         Dataset<Row> result = sparkSession.sql(query);
 

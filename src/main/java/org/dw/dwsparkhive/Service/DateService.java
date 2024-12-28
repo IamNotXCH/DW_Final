@@ -53,12 +53,13 @@ public class DateService {
         return executeCountQuery(sql);
     }
 
-    // 按年份和周数查询电影数量
-    public QueryResultDTO<Integer> getMovieCountByYearAndWeek(int year, int week) {
+    // 按年份、月份和日期查询电影数量
+    public QueryResultDTO<Integer> getMovieCountByYearMonthDay(int year, int month, int day) {
         String sql = String.format(
-                "SELECT COUNT(*) AS count FROM Movie m JOIN Dates d ON m.dateId = d.dateId WHERE d.year = %d AND d.week = %d",
-                year, week
+                "SELECT COUNT(*) AS count FROM Movie m JOIN Dates d ON m.dateId = d.dateId WHERE d.year = %d AND d.month = %d AND d.day = %d",
+                year, month, day
         );
         return executeCountQuery(sql);
     }
+
 }

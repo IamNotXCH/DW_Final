@@ -31,8 +31,8 @@ public class DateController {
     }
 
     // 获取某年某周的电影数量
-    @GetMapping("/count/year/{year}/week/{week}")
-    public QueryResultDTO<Integer> getMovieCountByYearAndWeek(@PathVariable int year, @PathVariable int week) {
-        return dateService.getMovieCountByYearAndWeek(year, week);
+    @GetMapping("/count/year/{year}/month/{month}/day/{day}")
+    public QueryResultDTO<Integer> getMovieCountByYearMonthDay(@PathVariable int year, @PathVariable int month, @PathVariable int day) {
+        return dateService.getMovieCountByYearMonthDay(year, month, day);
     }
 }
